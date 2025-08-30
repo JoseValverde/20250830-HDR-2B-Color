@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HDR 1B COLORS - Experiencia Visual Ultradinámico</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Arial', sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+        #info {
+            position: fixed;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            color: white;
+            font-size: 16px;
+            z-index: 100;
+            text-shadow: 0 0 5px #ff00ff, 0 0 10px #00ffff;
+        }
+        #loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background-color: #000;
+            color: white;
+            font-size: 24px;
+            z-index: 1000;
+        }
+        #loading h1 {
+            font-size: 36px;
+            background: linear-gradient(90deg, #ff00ff, #00ffff, #ffff00);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 20px;
+        }
+        #loading p {
+            margin-top: 30px;
+        }
+        .controls {
+            position: fixed;
+            bottom: 10px;
+            width: 100%;
+            text-align: center;
+            color: white;
+            z-index: 100;
+        }
+        button {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: 1px solid white;
+            padding: 5px 10px;
+            margin: 0 5px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        button:hover {
+            background: rgba(255,255,255,0.4);
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <h1>HDR 1B COLORS</h1>
+        <div>Cargando experiencia visual ultradinámico...</div>
+        <p>Por favor, espere un momento...</p>
+    </div>
+    
+    <div id="info"></div>
+    
+    <div class="controls">
+        <button id="btnSphere">Esfera</button>
+        <button id="btnVortex">Vórtice</button>
+        <button id="btnExplosion">Explosión</button>
+        <button id="btnGrid">Cuadrícula</button>
+        <button id="btnAuto">Auto-cambio</button>
+    </div>
+    
+    <script type="module">
+        import * as THREE from 'https://cdn.skypack.dev/three@0.136.0';
+        import { EffectComposer } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/postprocessing/UnrealBloomPass.js';
+        
+        // Variables globales
+        let scene, camera, renderer;
+        let composer, bloomPass;
+        let particleSystem, particles;
+        let velocities = [];
+        let clock = new THREE.Clock();
+        let animationId;
+        let timeElapsed = 0;
+        let lastEffectChangeTime = 0;
+        
+        // Configuración
+        const config = {
+            particleCount: 50000,
+            particleSize: 0.3,
+            maxDistance: 150,
+            speed: 1.0,
+            colorMode: 'pulse', // 'rainbow', 'pulse', 'random'
+            particleType: 'vortex', // 'sphere', 'vortex', 'explosion', 'grid'
+            bloomStrength: 2.0,
+            bloomRadius: 0.5,
+            bloomThreshold: 0.1,
+            autoChangeEffect: true,
+            effectDuration: 10 // segundos entre cambios
+        };
+        
+        // Secuencia de efectos para rotación automática
+        const effectSequence = [
+            { particleType: 'vortex', colorMode: 'pulse', bloomStrength: 2.0 },
+            { particleType: 'sphere', colorMode: 'rainbow', bloomStrength: 1.5 },
+            { particleType: 'explosion', colorMode: 'random', bloomStrength: 2.5 },
+            { particleType: 'grid', colorMode: 'rainbow', bloomStrength: 1.8 }
+        ];
+        
+        let currentEffectIndex = 0;
+        
+        // Utilidades
+        const Utils = {
+            // Genera un color aleatorio en formato hexadecimal
+            randomColor: function() {
+                return Math.random() * 0xffffff;
+            },
+            
+            // Genera un color vibrante específico para HDR
+            hdrColor: function() {
+                const colors = [
+                    0xFF00FF, // Magenta
+                    0x00FFFF, // Cian
+                    0xFFFF00, // Amarillo
+                    0xFF0000, // Rojo
+                    0x00FF00, // Verde
+                    0x0000FF, // Azul
+                    0xFFFFFF  // Blanco
+                ];
+                return colors[Math.floor(Math.random() * colors.length)];
+            },
+            
+            // Genera un valor aleatorio entre min y max
+            random: function(min, max) {
+                return Math.random() * (max - min) + min;
+            },
+            
+            // Genera una posición aleatoria en una esfera
+            randomSpherePoint: function(radius) {
+                const u = Math.random();
+                const v = Math.random();
+                const theta = 2 * Math.PI * u;
+                const phi = Math.acos(2 * v - 1);
+                
+                const x = radius * Math.sin(phi) * Math.cos(theta);
+                const y = radius * Math.sin(phi) * Math.sin(theta);
+                const z = radius * Math.cos(phi);
+                
+                return { x, y, z };
+            },
+            
+            // Función para obtener un color según una paleta
+            getColorFromPalette: function(index, totalColors) {
+                // Usar HSL para generar colores vibrantes
+                const hue = (index / totalColors) * 360;
+                const saturation = 100; // Máxima saturación
+                const lightness = 50;   // Brillo medio para mantener colores vibrantes
+                
+                return new THREE.Color().setHSL(hue/360, saturation/100, lightness/100);
+            }
+        };
+        
+        // Iniciar
+        init();
+        animate();
+        
+        function init() {
+            console.log('Inicializando...');
+            
+            // Escena
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x000000, 0.001);
+            
+            // Cámara
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+            camera.position.z = 150;
+            
+            // Renderizador
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.5;
+            document.body.appendChild(renderer.domElement);
+            
+            // Post-procesamiento para efectos HDR
+            setupPostProcessing();
+            
+            // Crear sistema de partículas
+            createParticleSystem();
+            
+            // Eventos
+            window.addEventListener('resize', onWindowResize);
+            setupControls();
+            
+            // Mostrar la escena
+            setTimeout(() => {
+                document.getElementById('loading').style.display = 'none';
+            }, 1000);
+            
+            console.log('Inicialización completa');
+        }
+        
+        function setupPostProcessing() {
+            console.log('Configurando post-procesamiento...');
+            
+            composer = new EffectComposer(renderer);
+            
+            const renderPass = new RenderPass(scene, camera);
+            composer.addPass(renderPass);
+            
+            const resolution = new THREE.Vector2(window.innerWidth, window.innerHeight);
+            bloomPass = new UnrealBloomPass(
+                resolution,
+                config.bloomStrength,
+                config.bloomRadius,
+                config.bloomThreshold
+            );
+            composer.addPass(bloomPass);
+            
+            console.log('Post-procesamiento configurado');
+        }
+        
+        function createParticleSystem() {
+            // Limpiar sistema anterior si existe
+            if (particleSystem) {
+                scene.remove(particleSystem);
+                particleSystem.geometry.dispose();
+                particleSystem.material.dispose();
+            }
+            
+            // Crear geometría
+            const geometry = new THREE.BufferGeometry();
+            const vertices = [];
+            const colors = [];
+            velocities = [];
+            
+            // Inicializar según el tipo seleccionado
+            switch(config.particleType) {
+                case 'sphere':
+                    initSphereParticles(vertices, colors);
+                    break;
+                case 'vortex':
+                    initVortexParticles(vertices, colors);
+                    break;
+                case 'explosion':
+                    initExplosionParticles(vertices, colors);
+                    break;
+                case 'grid':
+                    initGridParticles(vertices, colors);
+                    break;
+                default:
+                    initSphereParticles(vertices, colors);
+            }
+            
+            // Configurar atributos
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+            
+            // Material de partículas
+            const material = new THREE.PointsMaterial({
+                size: config.particleSize,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.8,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+            
+            // Crear mesh de partículas
+            particleSystem = new THREE.Points(geometry, material);
+            scene.add(particleSystem);
+        }
+        
+        function initSphereParticles(vertices, colors) {
+            for (let i = 0; i < config.particleCount; i++) {
+                const point = Utils.randomSpherePoint(config.maxDistance * 0.5);
+                
+                vertices.push(point.x, point.y, point.z);
+                
+                // Color según el modo
+                let color;
+                if (config.colorMode === 'rainbow') {
+                    color = Utils.getColorFromPalette(i, config.particleCount);
+                } else if (config.colorMode === 'pulse') {
+                    color = new THREE.Color(Utils.hdrColor());
+                } else {
+                    color = new THREE.Color(Utils.randomColor());
+                }
+                
+                colors.push(color.r, color.g, color.b);
+                
+                // Velocidad
+                velocities.push({
+                    x: Utils.random(-0.05, 0.05) * config.speed,
+                    y: Utils.random(-0.05, 0.05) * config.speed,
+                    z: Utils.random(-0.05, 0.05) * config.speed
+                });
+            }
+        }
+        
+        function initVortexParticles(vertices, colors) {
+            for (let i = 0; i < config.particleCount; i++) {
+                // Crear partículas en forma de vórtice
+                const angle = Math.random() * Math.PI * 2;
+                const radius = Math.random() * config.maxDistance * 0.5;
+                const height = Utils.random(-config.maxDistance * 0.5, config.maxDistance * 0.5);
+                
+                vertices.push(
+                    Math.cos(angle) * radius,
+                    height,
+                    Math.sin(angle) * radius
+                );
+                
+                // Color según el modo
+                let color;
+                if (config.colorMode === 'rainbow') {
+                    color = Utils.getColorFromPalette(i, config.particleCount);
+                } else if (config.colorMode === 'pulse') {
+                    color = new THREE.Color(Utils.hdrColor());
+                } else {
+                    color = new THREE.Color(Utils.randomColor());
+                }
+                
+                colors.push(color.r, color.g, color.b);
+                
+                // Velocidad - movimiento circular
+                velocities.push({
+                    x: -Math.sin(angle) * 0.02 * config.speed * (1 - radius / (config.maxDistance * 0.5)),
+                    y: 0.001 * config.speed,
+                    z: Math.cos(angle) * 0.02 * config.speed * (1 - radius / (config.maxDistance * 0.5))
+                });
+            }
+        }
+        
+        function initExplosionParticles(vertices, colors) {
+            for (let i = 0; i < config.particleCount; i++) {
+                // Todas las partículas comienzan cerca del centro
+                const distance = Math.random() * config.maxDistance * 0.1;
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos(2 * Math.random() - 1);
+                
+                vertices.push(
+                    distance * Math.sin(phi) * Math.cos(theta),
+                    distance * Math.sin(phi) * Math.sin(theta),
+                    distance * Math.cos(phi)
+                );
+                
+                // Color según el modo
+                let color;
+                if (config.colorMode === 'rainbow') {
+                    color = Utils.getColorFromPalette(i, config.particleCount);
+                } else if (config.colorMode === 'pulse') {
+                    color = new THREE.Color(Utils.hdrColor());
+                } else {
+                    color = new THREE.Color(Utils.randomColor());
+                }
+                
+                colors.push(color.r, color.g, color.b);
+                
+                // Velocidad - hacia afuera desde el centro
+                const speed = Math.random() * 0.2 * config.speed;
+                velocities.push({
+                    x: Math.sin(phi) * Math.cos(theta) * speed,
+                    y: Math.sin(phi) * Math.sin(theta) * speed,
+                    z: Math.cos(phi) * speed
+                });
+            }
+        }
+        
+        function initGridParticles(vertices, colors) {
+            // Calcular el número de partículas por lado para formar un cubo
+            const particlesPerSide = Math.ceil(Math.pow(config.particleCount, 1/3));
+            const spacing = config.maxDistance / particlesPerSide;
+            
+            let index = 0;
+            
+            // Crear una cuadrícula 3D de partículas
+            for (let x = 0; x < particlesPerSide && index < config.particleCount; x++) {
+                for (let y = 0; y < particlesPerSide && index < config.particleCount; y++) {
+                    for (let z = 0; z < particlesPerSide && index < config.particleCount; z++) {
+                        // Posición en cuadrícula con un poco de variación
+                        vertices.push(
+                            (x - particlesPerSide/2) * spacing + Utils.random(-spacing/5, spacing/5),
+                            (y - particlesPerSide/2) * spacing + Utils.random(-spacing/5, spacing/5),
+                            (z - particlesPerSide/2) * spacing + Utils.random(-spacing/5, spacing/5)
+                        );
+                        
+                        // Color según el modo
+                        let color;
+                        if (config.colorMode === 'rainbow') {
+                            color = Utils.getColorFromPalette(index, config.particleCount);
+                        } else if (config.colorMode === 'pulse') {
+                            color = new THREE.Color(Utils.hdrColor());
+                        } else {
+                            color = new THREE.Color(Utils.randomColor());
+                        }
+                        
+                        colors.push(color.r, color.g, color.b);
+                        
+                        // Velocidad - ondulación
+                        velocities.push({
+                            x: Math.sin(x/2) * 0.01 * config.speed,
+                            y: Math.cos(y/2) * 0.01 * config.speed,
+                            z: Math.sin(z/2) * 0.01 * config.speed
+                        });
+                        
+                        index++;
+                    }
+                }
+            }
+        }
+        
+        function setupControls() {
+            document.getElementById('btnSphere').addEventListener('click', () => {
+                config.particleType = 'sphere';
+                createParticleSystem();
+            });
+            
+            document.getElementById('btnVortex').addEventListener('click', () => {
+                config.particleType = 'vortex';
+                createParticleSystem();
+            });
+            
+            document.getElementById('btnExplosion').addEventListener('click', () => {
+                config.particleType = 'explosion';
+                createParticleSystem();
+            });
+            
+            document.getElementById('btnGrid').addEventListener('click', () => {
+                config.particleType = 'grid';
+                createParticleSystem();
+            });
+            
+            document.getElementById('btnAuto').addEventListener('click', () => {
+                config.autoChangeEffect = !config.autoChangeEffect;
+                document.getElementById('btnAuto').textContent = config.autoChangeEffect ? "Auto: ON" : "Auto: OFF";
+            });
+        }
+        
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        function animate() {
+            animationId = requestAnimationFrame(animate);
+            
+            const delta = clock.getDelta();
+            timeElapsed += delta;
+            
+            // Actualizar sistema de partículas
+            updateParticles(delta, timeElapsed);
+            
+            // Auto-cambio de efectos
+            if (config.autoChangeEffect && timeElapsed - lastEffectChangeTime > config.effectDuration) {
+                changeEffect();
+                lastEffectChangeTime = timeElapsed;
+            }
+            
+            // Renderizar con efectos
+            composer.render();
+        }
+        
+        function updateParticles(delta, time) {
+            if (!particleSystem) return;
+            
+            const positions = particleSystem.geometry.attributes.position.array;
+            const colors = particleSystem.geometry.attributes.color.array;
+            
+            // Actualizar cada partícula
+            for (let i = 0; i < config.particleCount; i++) {
+                const i3 = i * 3;
+                
+                // Actualizar posición
+                if (config.particleType === 'explosion') {
+                    // Para explosión, mover hacia afuera
+                    positions[i3] += velocities[i].x;
+                    positions[i3 + 1] += velocities[i].y;
+                    positions[i3 + 2] += velocities[i].z;
+                    
+                    // Si está muy lejos, reiniciar la partícula
+                    const distance = Math.sqrt(
+                        positions[i3] * positions[i3] + 
+                        positions[i3 + 1] * positions[i3 + 1] + 
+                        positions[i3 + 2] * positions[i3 + 2]
+                    );
+                    
+                    if (distance > config.maxDistance) {
+                        // Reiniciar desde el centro
+                        const newDistance = Math.random() * config.maxDistance * 0.1;
+                        const theta = Math.random() * Math.PI * 2;
+                        const phi = Math.acos(2 * Math.random() - 1);
+                        
+                        positions[i3] = newDistance * Math.sin(phi) * Math.cos(theta);
+                        positions[i3 + 1] = newDistance * Math.sin(phi) * Math.sin(theta);
+                        positions[i3 + 2] = newDistance * Math.cos(phi);
+                        
+                        const speed = Math.random() * 0.2 * config.speed;
+                        velocities[i] = {
+                            x: Math.sin(phi) * Math.cos(theta) * speed,
+                            y: Math.sin(phi) * Math.sin(theta) * speed,
+                            z: Math.cos(phi) * speed
+                        };
+                    }
+                } else if (config.particleType === 'vortex') {
+                    // Para vórtice, rotación espiral
+                    const x = positions[i3];
+                    const z = positions[i3 + 2];
+                    const radius = Math.sqrt(x * x + z * z);
+                    const angle = Math.atan2(z, x) + delta * (0.5 - radius / config.maxDistance) * 2;
+                    
+                    positions[i3] = radius * Math.cos(angle);
+                    positions[i3 + 2] = radius * Math.sin(angle);
+                    
+                    // Movimiento ondulatorio vertical
+                    positions[i3 + 1] += Math.sin(time + i * 0.01) * 0.05;
+                } else {
+                    // Para otros modos, movimiento suave
+                    positions[i3] += velocities[i].x;
+                    positions[i3 + 1] += velocities[i].y;
+                    positions[i3 + 2] += velocities[i].z;
+                    
+                    // Mantener dentro de los límites
+                    const distance = Math.sqrt(
+                        positions[i3] * positions[i3] + 
+                        positions[i3 + 1] * positions[i3 + 1] + 
+                        positions[i3 + 2] * positions[i3 + 2]
+                    );
+                    
+                    if (distance > config.maxDistance) {
+                        velocities[i].x *= -1;
+                        velocities[i].y *= -1;
+                        velocities[i].z *= -1;
+                    }
+                }
+                
+                // Actualizar color para efecto pulsante
+                if (config.colorMode === 'pulse') {
+                    const hue = (time * 0.1 + i * 0.0001) % 1;
+                    const color = new THREE.Color().setHSL(hue, 1, 0.5);
+                    colors[i3] = color.r;
+                    colors[i3 + 1] = color.g;
+                    colors[i3 + 2] = color.b;
+                }
+            }
+            
+            // Marcar atributos como necesitan actualización
+            particleSystem.geometry.attributes.position.needsUpdate = true;
+            particleSystem.geometry.attributes.color.needsUpdate = true;
+            
+            // Rotar todo el sistema de partículas para un efecto más dinámico
+            particleSystem.rotation.y += delta * 0.1;
+            particleSystem.rotation.x += delta * 0.05 * Math.sin(time * 0.2);
+            
+            // Pulsar intensidad del bloom
+            if (bloomPass) {
+                bloomPass.strength = config.bloomStrength * (1 + 0.5 * Math.sin(time * 2));
+            }
+        }
+        
+        function changeEffect() {
+            currentEffectIndex = (currentEffectIndex + 1) % effectSequence.length;
+            const effect = effectSequence[currentEffectIndex];
+            
+            // Aplicar nueva configuración
+            config.particleType = effect.particleType;
+            config.colorMode = effect.colorMode;
+            config.bloomStrength = effect.bloomStrength;
+            
+            // Recrear el sistema de partículas
+            createParticleSystem();
+            
+            console.log(`Cambiado a efecto: ${effect.particleType}, ${effect.colorMode}`);
+        }
+    </script>
+</body>
+</html>
