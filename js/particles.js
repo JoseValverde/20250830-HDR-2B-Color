@@ -9,7 +9,7 @@ class ParticleSystem {
         // Configuración predeterminada
         this.options = Object.assign({
             count: 10000,
-            size: 0.05,
+            size: 0.5,
             maxDistance: 100,
             speed: 0.01,
             colorMode: 'rainbow', // 'rainbow', 'pulse', 'random'

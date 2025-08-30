@@ -67,17 +67,42 @@
             cursor: pointer;
             border-radius: 4px;
             font-size: 12px;
+            transition: all 0.3s ease;
         }
         button:hover {
             background: rgba(255,255,255,0.4);
+            box-shadow: 0 0 10px rgba(255,255,255,0.5);
+        }
+        #settingsPanel {
+            box-shadow: 0 0 20px rgba(255,0,255,0.5);
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+        #settingsPanel input[type="range"] {
+            width: 100%;
+        }
+        #settingsPanel label {
+            font-weight: bold;
+        }
+        #settingsPanel span {
+            text-align: right;
+        }
+        #btnSettings {
+            background: rgba(255,0,255,0.3);
+        }
+        #btnApply {
+            transition: all 0.3s ease;
+        }
+        #btnApply:hover {
+            background: #00ccff !important;
+            box-shadow: 0 0 15px #00ccff;
         }
     </style>
 </head>
 <body>
     <div id="loading">
-        <h1>HDR 1B COLORS</h1>
+        <h1>HDR COLORS</h1>
         <div>Cargando experiencia visual ultradinámico...</div>
-        <p>Por favor, espere un momento...</p>
+        <p>Por favor, espera un momento...</p>
     </div>
     
     <div id="info"></div>
@@ -88,6 +113,43 @@
         <button id="btnExplosion">Explosión</button>
         <button id="btnGrid">Cuadrícula</button>
         <button id="btnAuto">Auto-cambio</button>
+        <button id="btnSettings">⚙️ Configuración</button>
+    </div>
+    
+    <div id="settingsPanel" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); background:rgba(0,0,0,0.8); padding:20px; border-radius:10px; z-index:1000; color:white; min-width:300px;">
+        <h3 style="margin-top:0">Configuración de Partículas</h3>
+        <div style="display:grid; grid-template-columns:auto 1fr; gap:10px; align-items:center; margin-bottom:15px;">
+            <label for="particleCount">Cantidad:</label>
+            <input type="range" id="particleCount" min="1000" max="100000" step="1000">
+            <span id="particleCountValue">20000</span>
+            
+            <label for="particleSize">Tamaño:</label>
+            <input type="range" id="particleSize" min="0.05" max="2" step="0.05">
+            <span id="particleSizeValue">0.5</span>
+            
+            <label for="speed">Velocidad:</label>
+            <input type="range" id="speed" min="0.5" max="10" step="0.5">
+            <span id="speedValue">5.0</span>
+            
+            <label for="bloomStrength">Intensidad bloom:</label>
+            <input type="range" id="bloomStrength" min="0" max="5" step="0.1">
+            <span id="bloomStrengthValue">1.0</span>
+            
+            <label for="maxDistance">Distancia máx:</label>
+            <input type="range" id="maxDistance" min="50" max="300" step="10">
+            <span id="maxDistanceValue">150</span>
+            
+            <label for="colorMode">Modo color:</label>
+            <select id="colorMode">
+                <option value="pulse">Pulso</option>
+                <option value="rainbow">Arcoíris</option>
+                <option value="random">Aleatorio</option>
+            </select>
+        </div>
+        <div style="text-align:center;">
+            <button id="btnApply" style="background:#00aaff; border:none; padding:8px 15px; border-radius:4px; color:white; cursor:pointer;">Aplicar</button>
+            <button id="btnClose" style="background:#666; border:none; padding:8px 15px; border-radius:4px; color:white; margin-left:10px; cursor:pointer;">Cerrar</button>
+        </div>
     </div>
     
     <script type="module">
@@ -108,17 +170,17 @@
         
         // Configuración
         const config = {
-            particleCount: 50000,
-            particleSize: 0.3,
+            particleCount: 20000,
+            particleSize: .5,
             maxDistance: 150,
-            speed: 1.0,
+            speed: 5.0,
             colorMode: 'pulse', // 'rainbow', 'pulse', 'random'
             particleType: 'vortex', // 'sphere', 'vortex', 'explosion', 'grid'
-            bloomStrength: 2.0,
-            bloomRadius: 0.5,
-            bloomThreshold: 0.1,
+            bloomStrength: 1,
+            bloomRadius: 1,
+            bloomThreshold: 0.5,
             autoChangeEffect: true,
-            effectDuration: 10 // segundos entre cambios
+            effectDuration: 15 // segundos entre cambios
         };
         
         // Secuencia de efectos para rotación automática
@@ -457,6 +519,77 @@
             document.getElementById('btnAuto').addEventListener('click', () => {
                 config.autoChangeEffect = !config.autoChangeEffect;
                 document.getElementById('btnAuto').textContent = config.autoChangeEffect ? "Auto: ON" : "Auto: OFF";
+            });
+            
+            // Panel de configuración
+            const settingsPanel = document.getElementById('settingsPanel');
+            
+            document.getElementById('btnSettings').addEventListener('click', () => {
+                // Actualizar los valores de los controles para reflejar la configuración actual
+                document.getElementById('particleCount').value = config.particleCount;
+                document.getElementById('particleCountValue').textContent = config.particleCount;
+                
+                document.getElementById('particleSize').value = config.particleSize;
+                document.getElementById('particleSizeValue').textContent = config.particleSize;
+                
+                document.getElementById('speed').value = config.speed;
+                document.getElementById('speedValue').textContent = config.speed;
+                
+                document.getElementById('bloomStrength').value = config.bloomStrength;
+                document.getElementById('bloomStrengthValue').textContent = config.bloomStrength;
+                
+                document.getElementById('maxDistance').value = config.maxDistance;
+                document.getElementById('maxDistanceValue').textContent = config.maxDistance;
+                
+                document.getElementById('colorMode').value = config.colorMode;
+                
+                settingsPanel.style.display = 'block';
+            });
+            
+            document.getElementById('btnClose').addEventListener('click', () => {
+                settingsPanel.style.display = 'none';
+            });
+            
+            document.getElementById('btnApply').addEventListener('click', () => {
+                // Guardar los valores actualizados
+                config.particleCount = parseInt(document.getElementById('particleCount').value);
+                config.particleSize = parseFloat(document.getElementById('particleSize').value);
+                config.speed = parseFloat(document.getElementById('speed').value);
+                config.bloomStrength = parseFloat(document.getElementById('bloomStrength').value);
+                config.maxDistance = parseInt(document.getElementById('maxDistance').value);
+                config.colorMode = document.getElementById('colorMode').value;
+                
+                // Aplicar cambios
+                if (bloomPass) {
+                    bloomPass.strength = config.bloomStrength;
+                }
+                
+                // Recrear el sistema de partículas con la nueva configuración
+                createParticleSystem();
+                
+                // Cerrar panel
+                settingsPanel.style.display = 'none';
+            });
+            
+            // Actualizar valores en tiempo real mientras se ajustan los controles
+            document.getElementById('particleCount').addEventListener('input', function() {
+                document.getElementById('particleCountValue').textContent = this.value;
+            });
+            
+            document.getElementById('particleSize').addEventListener('input', function() {
+                document.getElementById('particleSizeValue').textContent = this.value;
+            });
+            
+            document.getElementById('speed').addEventListener('input', function() {
+                document.getElementById('speedValue').textContent = this.value;
+            });
+            
+            document.getElementById('bloomStrength').addEventListener('input', function() {
+                document.getElementById('bloomStrengthValue').textContent = this.value;
+            });
+            
+            document.getElementById('maxDistance').addEventListener('input', function() {
+                document.getElementById('maxDistanceValue').textContent = this.value;
             });
         }
         
