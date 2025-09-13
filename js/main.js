@@ -11,8 +11,13 @@ import { UnrealBloomPass } from 'https://cdn.skypack.dev/three@0.136.0/examples/
 let scene, camera, renderer, controls;
 let composer, bloomPass;
 let particles;
+let particleTexture; // Textura para las partículas circulares
 let clock = new THREE.Clock();
 let animationMode = "sphere";
+let previousMode = "sphere";
+let transitionFactor = 1.0; // 0 = posición anterior, 1 = posición nueva
+let isTransitioning = false;
+let transitionSpeed = 2.0; // Velocidad de transición entre modos
 let particleCount = 25000;
 let particleSize = 0.05;
 let particleSpeed = 0.5;
@@ -146,6 +151,9 @@ function initThree() {
     composer.addPass(renderScene);
     composer.addPass(bloomPass);
     
+    // Crear textura circular para partículas
+    createCircleTexture();
+    
     // Crear sistema de partículas
     createParticles();
     
@@ -201,11 +209,47 @@ function createParticles() {
         vertexColors: true,
         transparent: true,
         opacity: 0.8,
-        blending: THREE.AdditiveBlending
+        blending: THREE.AdditiveBlending,
+        map: particleTexture,
+        alphaMap: particleTexture,
+        alphaTest: 0.01,  // Evitar problemas de transparencia
+        depthWrite: false // Mejora la renderización de partículas superpuestas
     });
     
     particles = new THREE.Points(geometry, material);
     scene.add(particles);
+}
+
+// Función para crear una textura circular para las partículas
+function createCircleTexture() {
+    const canvas = document.createElement('canvas');
+    const size = 128;
+    canvas.width = size;
+    canvas.height = size;
+    
+    const context = canvas.getContext('2d');
+    
+    // Dibujar un círculo con degradado
+    const centerX = size / 2;
+    const centerY = size / 2;
+    const radius = size / 2;
+    
+    // Crear un gradiente radial
+    const gradient = context.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
+    gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    gradient.addColorStop(0.3, 'rgba(255, 255, 255, 0.8)');
+    gradient.addColorStop(0.7, 'rgba(255, 255, 255, 0.3)');
+    gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    
+    // Dibujar el círculo
+    context.fillStyle = gradient;
+    context.beginPath();
+    context.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    context.fill();
+    
+    // Crear textura a partir del canvas
+    particleTexture = new THREE.CanvasTexture(canvas);
+    particleTexture.needsUpdate = true;
 }
 
 function animate() {
@@ -226,6 +270,15 @@ function updateParticles(delta, elapsedTime) {
     const positions = particles.geometry.attributes.position.array;
     const colors = particles.geometry.attributes.color.array;
     const color = new THREE.Color();
+    
+    // Actualizar factor de transición si estamos en transición
+    if (isTransitioning) {
+        transitionFactor += delta * transitionSpeed;
+        if (transitionFactor >= 1.0) {
+            transitionFactor = 1.0;
+            isTransitioning = false;
+        }
+    }
     
     // Actualizar posiciones según el modo de animación
     for (let i = 0; i < particleCount; i++) {
@@ -263,23 +316,50 @@ function updateParticles(delta, elapsedTime) {
                 const direction = new THREE.Vector3(x, y, z).normalize();
                 const speed = particleSpeed * (0.5 + Math.random() * 0.5) * delta;
                 
-                positions[i3] += direction.x * speed;
-                positions[i3 + 1] += direction.y * speed;
-                positions[i3 + 2] += direction.z * speed;
-                
-                // Resetear partículas que se alejan demasiado
-                if (distance > 10) {
-                    positions[i3] = (Math.random() - 0.5) * 0.2;
-                    positions[i3 + 1] = (Math.random() - 0.5) * 0.2;
-                    positions[i3 + 2] = (Math.random() - 0.5) * 0.2;
+                // Si estamos en transición, mover hacia el centro gradualmente
+                if (isTransitioning && previousMode !== "explosion") {
+                    // Calcular posición objetivo para explosión (cercana al centro)
+                    const targetX = (Math.random() - 0.5) * 0.2;
+                    const targetY = (Math.random() - 0.5) * 0.2;
+                    const targetZ = (Math.random() - 0.5) * 0.2;
+                    
+                    // Interpolar entre posición actual y objetivo
+                    positions[i3] = x * (1 - transitionFactor * 0.1) + targetX * transitionFactor * 0.1;
+                    positions[i3 + 1] = y * (1 - transitionFactor * 0.1) + targetY * transitionFactor * 0.1;
+                    positions[i3 + 2] = z * (1 - transitionFactor * 0.1) + targetZ * transitionFactor * 0.1;
+                } else {
+                    // Comportamiento normal de explosión
+                    positions[i3] += direction.x * speed;
+                    positions[i3 + 1] += direction.y * speed;
+                    positions[i3 + 2] += direction.z * speed;
+                    
+                    // Resetear partículas que se alejan demasiado
+                    if (distance > 10) {
+                        positions[i3] = (Math.random() - 0.5) * 0.2;
+                        positions[i3 + 1] = (Math.random() - 0.5) * 0.2;
+                        positions[i3 + 2] = (Math.random() - 0.5) * 0.2;
+                    }
                 }
                 break;
                 
             case "grid":
-                // Movimiento de grid
-                positions[i3] = Math.round(x * 2) * 0.5 + Math.sin(elapsedTime * particleSpeed + i) * 0.05;
-                positions[i3 + 1] = Math.round(y * 2) * 0.5 + Math.cos(elapsedTime * particleSpeed + i) * 0.05;
-                positions[i3 + 2] = Math.round(z * 2) * 0.5 + Math.sin(elapsedTime * particleSpeed + i * 2) * 0.05;
+                // Si estamos en transición, mover gradualmente hacia posiciones de grid
+                if (isTransitioning && previousMode !== "grid") {
+                    // Calcular posición objetivo para grid
+                    const targetX = Math.round((Math.random() - 0.5) * 4) * 0.5;
+                    const targetY = Math.round((Math.random() - 0.5) * 4) * 0.5;
+                    const targetZ = Math.round((Math.random() - 0.5) * 4) * 0.5;
+                    
+                    // Interpolar entre posición actual y objetivo
+                    positions[i3] = x * (1 - transitionFactor * 0.1) + targetX * transitionFactor * 0.1;
+                    positions[i3 + 1] = y * (1 - transitionFactor * 0.1) + targetY * transitionFactor * 0.1;
+                    positions[i3 + 2] = z * (1 - transitionFactor * 0.1) + targetZ * transitionFactor * 0.1;
+                } else {
+                    // Comportamiento normal de grid
+                    positions[i3] = Math.round(x * 2) * 0.5 + Math.sin(elapsedTime * particleSpeed + i) * 0.05;
+                    positions[i3 + 1] = Math.round(y * 2) * 0.5 + Math.cos(elapsedTime * particleSpeed + i) * 0.05;
+                    positions[i3 + 2] = Math.round(z * 2) * 0.5 + Math.sin(elapsedTime * particleSpeed + i * 2) * 0.05;
+                }
                 break;
         }
         
@@ -299,30 +379,16 @@ function updateParticles(delta, elapsedTime) {
 }
 
 function changeMode(mode) {
+    // No hacer nada si ya estamos en ese modo
+    if (animationMode === mode) return;
+    
+    // Guardar el modo anterior y establecer el nuevo
+    previousMode = animationMode;
     animationMode = mode;
     
-    // Resetear posiciones para ciertos modos
-    if (mode === "explosion" || mode === "grid") {
-        const positions = particles.geometry.attributes.position.array;
-        
-        for (let i = 0; i < particleCount; i++) {
-            const i3 = i * 3;
-            
-            if (mode === "explosion") {
-                // Posiciones concentradas para explosión
-                positions[i3] = (Math.random() - 0.5) * 0.2;
-                positions[i3 + 1] = (Math.random() - 0.5) * 0.2;
-                positions[i3 + 2] = (Math.random() - 0.5) * 0.2;
-            } else if (mode === "grid") {
-                // Posiciones en grid
-                positions[i3] = Math.round((Math.random() - 0.5) * 4) * 0.5;
-                positions[i3 + 1] = Math.round((Math.random() - 0.5) * 4) * 0.5;
-                positions[i3 + 2] = Math.round((Math.random() - 0.5) * 4) * 0.5;
-            }
-        }
-        
-        particles.geometry.attributes.position.needsUpdate = true;
-    }
+    // Iniciar transición
+    isTransitioning = true;
+    transitionFactor = 0.0;
 }
 
 function applySettings() {
