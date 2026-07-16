@@ -51,13 +51,39 @@ canvas {
     margin-top: 30px;
 }
 
-.controls {
+.right-panel {
     position: fixed;
-    bottom: 10px;
-    width: 100%;
-    text-align: center;
-    color: white;
+    top: 50%;
+    right: 20px;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 15px;
     z-index: 100;
+    color: white;
+}
+
+.controls {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.text-mode-row {
+    display: flex;
+    gap: 6px;
+}
+
+.text-mode-row input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    background: rgba(255,255,255,0.1);
+    color: white;
+    border: 1px solid white;
+    border-radius: 4px;
+    padding: 5px 8px;
+    font-size: 12px;
 }
 
 button {
@@ -65,7 +91,7 @@ button {
     color: white;
     border: 1px solid white;
     padding: 5px 10px;
-    margin: 0 5px;
+    margin: 0;
     cursor: pointer;
     border-radius: 4px;
     font-size: 12px;
@@ -80,10 +106,6 @@ button:hover {
 #settingsPanel {
     box-shadow: 0 0 20px rgba(255,0,255,0.5);
     border: 1px solid rgba(255,255,255,0.3);
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
     background: rgba(0,0,0,0.8);
     padding: 20px;
     border-radius: 10px;
@@ -94,6 +116,16 @@ button:hover {
 
 #settingsPanel input[type="range"] {
     width: 50%;
+}
+
+#settingsPanel select {
+    width: 50%;
+    background: #111;
+    color: white;
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 4px;
+    padding: 3px;
+    font-size: 12px;
 }
 
 #settingsPanel label {
@@ -123,27 +155,11 @@ button:hover {
     background: rgba(255,0,255,0.3);
 }
 
-#btnApply {
-    background: #00aaff;
-    border: none;
-    padding: 8px 15px;
-    border-radius: 4px;
-    color: white;
-    cursor: pointer;
-    transition: all 0.3s ease;
-}
-
 #btnClose {
     background: #666;
     border: none;
     padding: 8px 15px;
     border-radius: 4px;
     color: white;
-    margin-left: 10px;
     cursor: pointer;
-}
-
-#btnApply:hover {
-    background: #00ccff !important;
-    box-shadow: 0 0 15px #00ccff;
 }

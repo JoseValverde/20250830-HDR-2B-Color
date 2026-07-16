@@ -1,15 +1,16 @@
-// HDR 1B COLORS - Script principal
+// HDR 2B Color - Script principalincipal
 // Script basado en Three.js para crear efectos de partículas HDR
 
-import * as THREE from 'https://cdn.skypack.dev/three@0.136.0';
-import { OrbitControls } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/controls/OrbitControls.js';
-import { EffectComposer } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/postprocessing/UnrealBloomPass.js';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { AfterimagePass } from 'three/addons/postprocessing/AfterimagePass.js';
 
 // Variables globales
 let scene, camera, renderer, controls;
-let composer, bloomPass;
+let composer, bloomPass, afterimagePass;
 let particles;
 let particleTexture; // Textura para las partículas circulares
 let clock = new THREE.Clock();
@@ -18,6 +19,11 @@ let previousMode = "sphere";
 let transitionFactor = 1.0; // 0 = posición anterior, 1 = posición nueva
 let isTransitioning = false;
 let transitionSpeed = 2.0; // Velocidad de transición entre modos
+
+// Arrays para los atributos de las partículas (accesibles globalmente)
+let particleSizes;
+let particlePositions;
+let particleColors;
 let particleCount = 25000;
 let particleSize = 0.05;
 let particleSpeed = 0.5;
@@ -26,6 +32,35 @@ let bloomRadius = 0.75;
 let bloomThreshold = 0.2;
 let colorCycle = true;
 let colorSpeed = 0.5;
+let colorPalette = 'rainbow';
+let trailsEnabled = false;
+let trailAmount = 0.85;
+let currentText = 'HDR';
+let textTargets = null; // Puntos {x, y} muestreados de la silueta del texto
+
+// Paletas de color predefinidas (además de "rainbow", que usa HSL aleatorio)
+const PALETTE_STOPS = {
+    fuego: ['#3b0000', '#ff2200', '#ff9500', '#ffe600'],
+    oceano: ['#001233', '#0074d9', '#39cccc', '#b3fff6'],
+    neon: ['#ff00ff', '#7b2ff7', '#00e5ff', '#39ff14'],
+    mono: ['#1a1a2e', '#4e4e8f', '#a5a5ff', '#ffffff'],
+};
+const PALETTE_COLORS = {};
+for (const key in PALETTE_STOPS) {
+    PALETTE_COLORS[key] = PALETTE_STOPS[key].map((hex) => new THREE.Color(hex));
+}
+
+// Escribe en `target` el color de la paleta activa para el parámetro t (0-1)
+function paletteColor(t, target) {
+    if (colorPalette === 'rainbow') {
+        return target.setHSL(t, 1, 0.5 + Math.random() * 0.4);
+    }
+    const stops = PALETTE_COLORS[colorPalette] || PALETTE_COLORS.neon;
+    const scaled = Math.min(Math.max(t, 0), 1) * (stops.length - 1);
+    const idx = Math.min(Math.floor(scaled), stops.length - 2);
+    const localT = scaled - idx;
+    return target.lerpColors(stops[idx], stops[idx + 1], localT);
+}
 
 // Elementos DOM
 let loadingScreen;
@@ -33,9 +68,11 @@ let settingsPanel;
 let rangeParticleCount, rangeParticleSize, rangeParticleSpeed;
 let rangeBloomStrength, rangeBloomRadius, rangeBloomThreshold;
 let rangeColorSpeed, checkboxColorCycle;
+let selectColorPalette, checkboxTrailsEnabled, rangeTrailAmount;
+let textInput;
 let valueParticleCount, valueParticleSize, valueParticleSpeed;
 let valueBloomStrength, valueBloomRadius, valueBloomThreshold;
-let valueColorSpeed;
+let valueColorSpeed, valueTrailAmount;
 
 // Inicialización cuando el documento esté listo
 window.addEventListener('DOMContentLoaded', init);
@@ -56,7 +93,11 @@ function init() {
     rangeBloomThreshold = document.getElementById('bloomThreshold');
     rangeColorSpeed = document.getElementById('colorSpeed');
     checkboxColorCycle = document.getElementById('colorCycle');
-    
+    selectColorPalette = document.getElementById('colorPalette');
+    checkboxTrailsEnabled = document.getElementById('trailsEnabled');
+    rangeTrailAmount = document.getElementById('trailAmount');
+    textInput = document.getElementById('textInput');
+
     valueParticleCount = document.getElementById('valueParticleCount');
     valueParticleSize = document.getElementById('valueParticleSize');
     valueParticleSpeed = document.getElementById('valueParticleSpeed');
@@ -64,7 +105,8 @@ function init() {
     valueBloomRadius = document.getElementById('valueBloomRadius');
     valueBloomThreshold = document.getElementById('valueBloomThreshold');
     valueColorSpeed = document.getElementById('valueColorSpeed');
-    
+    valueTrailAmount = document.getElementById('valueTrailAmount');
+
     // Configurar valores iniciales
     rangeParticleCount.value = particleCount;
     rangeParticleSize.value = particleSize;
@@ -74,7 +116,11 @@ function init() {
     rangeBloomThreshold.value = bloomThreshold;
     rangeColorSpeed.value = colorSpeed;
     checkboxColorCycle.checked = colorCycle;
-    
+    selectColorPalette.value = colorPalette;
+    checkboxTrailsEnabled.checked = trailsEnabled;
+    rangeTrailAmount.value = trailAmount;
+    textInput.value = currentText;
+
     valueParticleCount.textContent = particleCount;
     valueParticleSize.textContent = particleSize;
     valueParticleSpeed.textContent = particleSpeed;
@@ -82,38 +128,79 @@ function init() {
     valueBloomRadius.textContent = bloomRadius;
     valueBloomThreshold.textContent = bloomThreshold;
     valueColorSpeed.textContent = colorSpeed;
+    valueTrailAmount.textContent = trailAmount;
     
     // Agregar event listeners a los controles
     document.getElementById('btnSphere').addEventListener('click', () => changeMode('sphere'));
     document.getElementById('btnVortex').addEventListener('click', () => changeMode('vortex'));
     document.getElementById('btnExplosion').addEventListener('click', () => changeMode('explosion'));
     document.getElementById('btnGrid').addEventListener('click', () => changeMode('grid'));
+    document.getElementById('btnWaves').addEventListener('click', () => changeMode('waves'));
+    document.getElementById('btnText').addEventListener('click', () => {
+        currentText = textInput.value.trim() || 'HDR';
+        textTargets = buildTextTargets(currentText);
+        changeMode('text');
+    });
     document.getElementById('btnSettings').addEventListener('click', toggleSettings);
-    document.getElementById('btnApply').addEventListener('click', applySettings);
     document.getElementById('btnClose').addEventListener('click', toggleSettings);
-    
+
+    textInput.addEventListener('input', () => {
+        if (animationMode === 'text') {
+            currentText = textInput.value.trim() || 'HDR';
+            textTargets = buildTextTargets(currentText);
+        }
+    });
+
     rangeParticleCount.addEventListener('input', () => {
         valueParticleCount.textContent = rangeParticleCount.value;
+        particleCount = parseInt(rangeParticleCount.value);
+        createParticles();
     });
     rangeParticleSize.addEventListener('input', () => {
         valueParticleSize.textContent = rangeParticleSize.value;
+        particleSize = parseFloat(rangeParticleSize.value);
+        createParticles();
     });
     rangeParticleSpeed.addEventListener('input', () => {
         valueParticleSpeed.textContent = rangeParticleSpeed.value;
+        particleSpeed = parseFloat(rangeParticleSpeed.value);
     });
     rangeBloomStrength.addEventListener('input', () => {
         valueBloomStrength.textContent = rangeBloomStrength.value;
+        bloomStrength = parseFloat(rangeBloomStrength.value);
+        bloomPass.strength = bloomStrength;
     });
     rangeBloomRadius.addEventListener('input', () => {
         valueBloomRadius.textContent = rangeBloomRadius.value;
+        bloomRadius = parseFloat(rangeBloomRadius.value);
+        bloomPass.radius = bloomRadius;
     });
     rangeBloomThreshold.addEventListener('input', () => {
         valueBloomThreshold.textContent = rangeBloomThreshold.value;
+        bloomThreshold = parseFloat(rangeBloomThreshold.value);
+        bloomPass.threshold = bloomThreshold;
     });
     rangeColorSpeed.addEventListener('input', () => {
         valueColorSpeed.textContent = rangeColorSpeed.value;
+        colorSpeed = parseFloat(rangeColorSpeed.value);
     });
-    
+    checkboxColorCycle.addEventListener('change', () => {
+        colorCycle = checkboxColorCycle.checked;
+    });
+    selectColorPalette.addEventListener('change', () => {
+        colorPalette = selectColorPalette.value;
+        createParticles();
+    });
+    checkboxTrailsEnabled.addEventListener('change', () => {
+        trailsEnabled = checkboxTrailsEnabled.checked;
+        afterimagePass.enabled = trailsEnabled;
+    });
+    rangeTrailAmount.addEventListener('input', () => {
+        valueTrailAmount.textContent = rangeTrailAmount.value;
+        trailAmount = parseFloat(rangeTrailAmount.value);
+        afterimagePass.uniforms['damp'].value = trailAmount;
+    });
+
     // Iniciar Three.js
     initThree();
 }
@@ -146,9 +233,13 @@ function initThree() {
         bloomRadius,
         bloomThreshold
     );
-    
+
+    afterimagePass = new AfterimagePass(trailAmount);
+    afterimagePass.enabled = trailsEnabled;
+
     composer = new EffectComposer(renderer);
     composer.addPass(renderScene);
+    composer.addPass(afterimagePass);
     composer.addPass(bloomPass);
     
     // Crear textura circular para partículas
@@ -174,9 +265,11 @@ function createParticles() {
     }
     
     const geometry = new THREE.BufferGeometry();
-    const positions = new Float32Array(particleCount * 3);
-    const colors = new Float32Array(particleCount * 3);
-    const sizes = new Float32Array(particleCount);
+    
+    // Crear arrays para posición, color y tamaño, y asignarlos a las variables globales
+    particlePositions = new Float32Array(particleCount * 3);
+    particleColors = new Float32Array(particleCount * 3);
+    particleSizes = new Float32Array(particleCount);
     
     const color = new THREE.Color();
     
@@ -185,37 +278,56 @@ function createParticles() {
         const radius = Math.random() * 2;
         const theta = Math.random() * Math.PI * 2;
         const phi = Math.random() * Math.PI;
-        
-        positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
-        positions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
-        positions[i * 3 + 2] = radius * Math.cos(phi);
-        
-        // Color vibrante aleatorio
-        color.setHSL(Math.random(), 1, 0.5 + Math.random() * 0.5);
-        colors[i * 3] = color.r;
-        colors[i * 3 + 1] = color.g;
-        colors[i * 3 + 2] = color.b;
-        
+
+        particlePositions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+        particlePositions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+        particlePositions[i * 3 + 2] = radius * Math.cos(phi);
+
+        // Color según la paleta activa
+        paletteColor(Math.random(), color);
+        particleColors[i * 3] = color.r;
+        particleColors[i * 3 + 1] = color.g;
+        particleColors[i * 3 + 2] = color.b;
+
         // Tamaño aleatorio dentro de un rango
-        sizes[i] = particleSize * (0.5 + Math.random() * 0.5);
+        particleSizes[i] = particleSize * (0.5 + Math.random() * 0.5);
     }
-    
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-    
-    const material = new THREE.PointsMaterial({
-        size: particleSize,
-        vertexColors: true,
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(particleColors, 3));
+    geometry.setAttribute('size', new THREE.BufferAttribute(particleSizes, 1));
+
+    const material = new THREE.ShaderMaterial({
+        uniforms: {
+            pointTexture: { value: particleTexture },
+            scale: { value: window.innerHeight / 2 }
+        },
+        vertexShader: `
+            attribute float size;
+            attribute vec3 color;
+            varying vec3 vColor;
+            uniform float scale;
+            void main() {
+                vColor = color;
+                vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                gl_PointSize = size * (scale / -mvPosition.z);
+                gl_Position = projectionMatrix * mvPosition;
+            }
+        `,
+        fragmentShader: `
+            uniform sampler2D pointTexture;
+            varying vec3 vColor;
+            void main() {
+                vec4 texColor = texture2D(pointTexture, gl_PointCoord);
+                if (texColor.a < 0.05) discard;
+                gl_FragColor = vec4(vColor, texColor.a * 0.8);
+            }
+        `,
         transparent: true,
-        opacity: 0.8,
         blending: THREE.AdditiveBlending,
-        map: particleTexture,
-        alphaMap: particleTexture,
-        alphaTest: 0.01,  // Evitar problemas de transparencia
         depthWrite: false // Mejora la renderización de partículas superpuestas
     });
-    
+
     particles = new THREE.Points(geometry, material);
     scene.add(particles);
 }
@@ -283,9 +395,9 @@ function updateParticles(delta, elapsedTime) {
     // Actualizar posiciones según el modo de animación
     for (let i = 0; i < particleCount; i++) {
         const i3 = i * 3;
-        const x = positions[i3];
-        const y = positions[i3 + 1];
-        const z = positions[i3 + 2];
+        const x = particlePositions[i3];
+        const y = particlePositions[i3 + 1];
+        const z = particlePositions[i3 + 2];
         
         switch (animationMode) {
             case "sphere":
@@ -294,9 +406,9 @@ function updateParticles(delta, elapsedTime) {
                 const targetRadius = 1.0 + 0.5 * Math.sin(elapsedTime * particleSpeed);
                 const factor = 1.0 + (targetRadius / radius - 1.0) * delta * particleSpeed * 2;
                 
-                positions[i3] = x * factor;
-                positions[i3 + 1] = y * factor;
-                positions[i3 + 2] = z * factor;
+                particlePositions[i3] = x * factor;
+                particlePositions[i3 + 1] = y * factor;
+                particlePositions[i3 + 2] = z * factor;
                 break;
                 
             case "vortex":
@@ -305,9 +417,9 @@ function updateParticles(delta, elapsedTime) {
                 const cosAngle = Math.cos(angle);
                 const sinAngle = Math.sin(angle);
                 
-                positions[i3] = x * cosAngle - z * sinAngle;
-                positions[i3 + 2] = z * cosAngle + x * sinAngle;
-                positions[i3 + 1] += Math.sin(elapsedTime * 2 + i * 0.01) * 0.01;
+                particlePositions[i3] = x * cosAngle - z * sinAngle;
+                particlePositions[i3 + 2] = z * cosAngle + x * sinAngle;
+                particlePositions[i3 + 1] += Math.sin(elapsedTime * 2 + i * 0.01) * 0.01;
                 break;
                 
             case "explosion":
@@ -324,20 +436,20 @@ function updateParticles(delta, elapsedTime) {
                     const targetZ = (Math.random() - 0.5) * 0.2;
                     
                     // Interpolar entre posición actual y objetivo
-                    positions[i3] = x * (1 - transitionFactor * 0.1) + targetX * transitionFactor * 0.1;
-                    positions[i3 + 1] = y * (1 - transitionFactor * 0.1) + targetY * transitionFactor * 0.1;
-                    positions[i3 + 2] = z * (1 - transitionFactor * 0.1) + targetZ * transitionFactor * 0.1;
+                    particlePositions[i3] = x * (1 - transitionFactor * 0.1) + targetX * transitionFactor * 0.1;
+                    particlePositions[i3 + 1] = y * (1 - transitionFactor * 0.1) + targetY * transitionFactor * 0.1;
+                    particlePositions[i3 + 2] = z * (1 - transitionFactor * 0.1) + targetZ * transitionFactor * 0.1;
                 } else {
                     // Comportamiento normal de explosión
-                    positions[i3] += direction.x * speed;
-                    positions[i3 + 1] += direction.y * speed;
-                    positions[i3 + 2] += direction.z * speed;
+                    particlePositions[i3] += direction.x * speed;
+                    particlePositions[i3 + 1] += direction.y * speed;
+                    particlePositions[i3 + 2] += direction.z * speed;
                     
                     // Resetear partículas que se alejan demasiado
                     if (distance > 10) {
-                        positions[i3] = (Math.random() - 0.5) * 0.2;
-                        positions[i3 + 1] = (Math.random() - 0.5) * 0.2;
-                        positions[i3 + 2] = (Math.random() - 0.5) * 0.2;
+                        particlePositions[i3] = (Math.random() - 0.5) * 0.2;
+                        particlePositions[i3 + 1] = (Math.random() - 0.5) * 0.2;
+                        particlePositions[i3 + 2] = (Math.random() - 0.5) * 0.2;
                     }
                 }
                 break;
@@ -345,37 +457,289 @@ function updateParticles(delta, elapsedTime) {
             case "grid":
                 // Si estamos en transición, mover gradualmente hacia posiciones de grid
                 if (isTransitioning && previousMode !== "grid") {
-                    // Calcular posición objetivo para grid
-                    const targetX = Math.round((Math.random() - 0.5) * 4) * 0.5;
-                    const targetY = Math.round((Math.random() - 0.5) * 4) * 0.5;
-                    const targetZ = Math.round((Math.random() - 0.5) * 4) * 0.5;
+                    // Transición hacia el nuevo modo de distribución inspirada en la imagen de referencia
+                    
+                    // Parámetros para controlar la distribución
+                    const maxDistance = 3.0; // Distancia máxima desde el centro
+                    const coreSize = 0.8; // Tamaño del núcleo central más denso
+                    
+                    // Dividimos las partículas en diferentes zonas para el efecto visual
+                    const zoneIndex = Math.floor(i / particleCount * 4); // 4 zonas diferentes
+                    
+                    // Calcular posición objetivo para esta partícula
+                    let targetX = 0, targetY = 0, targetZ = 0;
+                    let distanceFactor, angle, radius, height;
+                    
+                    // Distribución diferente según la zona para crear el patrón visual de la imagen
+                    if (zoneIndex === 0) {
+                        // Zona central más densa (núcleo amarillo/verde brillante)
+                        distanceFactor = Math.pow(Math.random(), 3) * coreSize; // Concentración en centro
+                        angle = Math.random() * Math.PI * 2;
+                        radius = distanceFactor * maxDistance;
+                        height = (Math.random() * 2 - 1) * distanceFactor * maxDistance;
+                        
+                        // Asignar colores objetivo para transición suave
+                        const colorFactor = transitionFactor * 0.05;
+                        particleColors[i3] = particleColors[i3] * (1 - colorFactor) + (0.8 + Math.random() * 0.2) * colorFactor; // R - alto
+                        particleColors[i3 + 1] = particleColors[i3 + 1] * (1 - colorFactor) + (0.7 + Math.random() * 0.3) * colorFactor; // G - alto
+                        particleColors[i3 + 2] = particleColors[i3 + 2] * (1 - colorFactor) + (0.2 + Math.random() * 0.2) * colorFactor; // B - bajo
+                    } 
+                    else if (zoneIndex === 1) {
+                        // Zona intermedia (transición)
+                        distanceFactor = coreSize + (1 - coreSize) * Math.pow(Math.random(), 0.5);
+                        angle = Math.random() * Math.PI * 2;
+                        radius = distanceFactor * maxDistance;
+                        height = (Math.random() * 2 - 1) * maxDistance;
+                        
+                        // Colores de transición
+                        const transitionColorFactor = Math.random();
+                        const colorFactor = transitionFactor * 0.05;
+                        particleColors[i3] = particleColors[i3] * (1 - colorFactor) + (0.5 + transitionColorFactor * 0.3) * colorFactor; // R - medio-alto
+                        particleColors[i3 + 1] = particleColors[i3 + 1] * (1 - colorFactor) + (0.4 + transitionColorFactor * 0.4) * colorFactor; // G - medio
+                        particleColors[i3 + 2] = particleColors[i3 + 2] * (1 - colorFactor) + (0.3 + transitionColorFactor * 0.3) * colorFactor; // B - medio-bajo
+                    }
+                    else if (zoneIndex === 2) {
+                        // Zona exterior con distribución lateral (como los rayos en la imagen)
+                        distanceFactor = coreSize + (1 - coreSize) * Math.pow(Math.random(), 0.5);
+                        // Ángulos limitados para formar "rayos" laterales
+                        const angleOffset = Math.PI * 0.5 * Math.floor(Math.random() * 4);
+                        angle = angleOffset + (Math.random() * 0.3 - 0.15);
+                        radius = distanceFactor * maxDistance;
+                        height = (Math.random() * 2 - 1) * maxDistance * 0.5;
+                        
+                        // Colores tendiendo al morado/rosa
+                        const colorFactor = transitionFactor * 0.05;
+                        particleColors[i3] = particleColors[i3] * (1 - colorFactor) + (0.4 + Math.random() * 0.3) * colorFactor; // R - medio
+                        particleColors[i3 + 1] = particleColors[i3 + 1] * (1 - colorFactor) + (0.1 + Math.random() * 0.2) * colorFactor; // G - bajo
+                        particleColors[i3 + 2] = particleColors[i3 + 2] * (1 - colorFactor) + (0.5 + Math.random() * 0.5) * colorFactor; // B - alto
+                    }
+                    else {
+                        // Zona exterior más dispersa (fondo con partículas rosadas/moradas)
+                        distanceFactor = 0.7 + Math.random() * 0.3;
+                        angle = Math.random() * Math.PI * 2;
+                        radius = distanceFactor * maxDistance;
+                        height = (Math.random() * 2 - 1) * maxDistance;
+                        
+                        // Colores tendiendo al morado/rosa/azul
+                        const colorFactor = transitionFactor * 0.05;
+                        particleColors[i3] = particleColors[i3] * (1 - colorFactor) + (0.3 + Math.random() * 0.3) * colorFactor; // R - medio-bajo
+                        particleColors[i3 + 1] = particleColors[i3 + 1] * (1 - colorFactor) + (0.05 + Math.random() * 0.1) * colorFactor; // G - muy bajo
+                        particleColors[i3 + 2] = particleColors[i3 + 2] * (1 - colorFactor) + (0.6 + Math.random() * 0.4) * colorFactor; // B - alto
+                    }
+                    
+                    // Calcular posiciones target
+                    const time = elapsedTime * 0.3;
+                    radius += Math.sin(time + angle * 3) * 0.05 * radius;
+                    
+                    // Convertir coordenadas polares a cartesianas
+                    targetX = Math.cos(angle) * radius;
+                    targetZ = Math.sin(angle) * radius;
+                    targetY = height;
                     
                     // Interpolar entre posición actual y objetivo
-                    positions[i3] = x * (1 - transitionFactor * 0.1) + targetX * transitionFactor * 0.1;
-                    positions[i3 + 1] = y * (1 - transitionFactor * 0.1) + targetY * transitionFactor * 0.1;
-                    positions[i3 + 2] = z * (1 - transitionFactor * 0.1) + targetZ * transitionFactor * 0.1;
+                    particlePositions[i3] = x * (1 - transitionFactor * 0.1) + targetX * transitionFactor * 0.1;
+                    particlePositions[i3 + 1] = y * (1 - transitionFactor * 0.1) + targetY * transitionFactor * 0.1;
+                    particlePositions[i3 + 2] = z * (1 - transitionFactor * 0.1) + targetZ * transitionFactor * 0.1;
+                    
+                    // Ajustar tamaño de partícula durante la transición
+                    const sizeBase = 0.8;
+                    const sizeFactor = (zoneIndex === 0) ? 1.2 : sizeBase;
+                    particleSizes[i] = particleSizes[i] * (1 - transitionFactor * 0.1) + (particleSize * (1 - distanceFactor * 0.3) * sizeFactor) * transitionFactor * 0.1;
+
+                    // Hacer visible la partícula si estaba invisible
+                    if (particleSizes[i] < particleSize * 0.1) particleSizes[i] = particleSize * 0.1;
                 } else {
-                    // Comportamiento normal de grid
-                    positions[i3] = Math.round(x * 2) * 0.5 + Math.sin(elapsedTime * particleSpeed + i) * 0.05;
-                    positions[i3 + 1] = Math.round(y * 2) * 0.5 + Math.cos(elapsedTime * particleSpeed + i) * 0.05;
-                    positions[i3 + 2] = Math.round(z * 2) * 0.5 + Math.sin(elapsedTime * particleSpeed + i * 2) * 0.05;
+                    // Nuevo sistema de distribución de partículas inspirado en la imagen de referencia
+                    // Creamos un efecto de explosión/vórtice con degradado de colores
+                    
+                    // Parámetros para controlar la distribución
+                    const maxDistance = 3.0; // Distancia máxima desde el centro
+                    const coreSize = 0.8; // Tamaño del núcleo central más denso
+                    const coreIntensity = 0.8; // Densidad del núcleo central (0-1)
+                    
+                    // Dividimos las partículas en diferentes zonas para el efecto visual
+                    const zoneIndex = Math.floor(i / particleCount * 4); // 4 zonas diferentes
+                    
+                    // Calcular distancia base desde el centro para esta partícula
+                    let distanceFactor;
+                    let angle, radius, height;
+                    
+                    // Distribución diferente según la zona para crear el patrón visual de la imagen
+                    if (zoneIndex === 0) {
+                        // Zona central más densa (núcleo amarillo/verde brillante)
+                        distanceFactor = Math.pow(Math.random(), 3) * coreSize; // Concentración en centro
+                        angle = Math.random() * Math.PI * 2;
+                        radius = distanceFactor * maxDistance;
+                        height = (Math.random() * 2 - 1) * distanceFactor * maxDistance;
+                        
+                        // Establecer colores para esta zona (amarillo/verde brillante)
+                        particleColors[i3] = 0.8 + Math.random() * 0.2; // R - alto
+                        particleColors[i3 + 1] = 0.7 + Math.random() * 0.3; // G - alto
+                        particleColors[i3 + 2] = 0.2 + Math.random() * 0.2; // B - bajo
+                    } 
+                    else if (zoneIndex === 1) {
+                        // Zona intermedia (transición)
+                        distanceFactor = coreSize + (1 - coreSize) * Math.pow(Math.random(), 0.5);
+                        angle = Math.random() * Math.PI * 2;
+                        radius = distanceFactor * maxDistance;
+                        height = (Math.random() * 2 - 1) * maxDistance;
+                        
+                        // Colores de transición
+                        const transitionFactor = Math.random();
+                        particleColors[i3] = 0.5 + transitionFactor * 0.3; // R - medio-alto
+                        particleColors[i3 + 1] = 0.4 + transitionFactor * 0.4; // G - medio
+                        particleColors[i3 + 2] = 0.3 + transitionFactor * 0.3; // B - medio-bajo
+                    }
+                    else if (zoneIndex === 2) {
+                        // Zona exterior con distribución lateral (como los rayos en la imagen)
+                        distanceFactor = coreSize + (1 - coreSize) * Math.pow(Math.random(), 0.5);
+                        // Ángulos limitados para formar "rayos" laterales
+                        const angleOffset = Math.PI * 0.5 * Math.floor(Math.random() * 4);
+                        angle = angleOffset + (Math.random() * 0.3 - 0.15);
+                        radius = distanceFactor * maxDistance;
+                        height = (Math.random() * 2 - 1) * maxDistance * 0.5;
+                        
+                        // Colores tendiendo al morado/rosa
+                        particleColors[i3] = 0.4 + Math.random() * 0.3; // R - medio
+                        particleColors[i3 + 1] = 0.1 + Math.random() * 0.2; // G - bajo
+                        particleColors[i3 + 2] = 0.5 + Math.random() * 0.5; // B - alto
+                    }
+                    else {
+                        // Zona exterior más dispersa (fondo con partículas rosadas/moradas)
+                        distanceFactor = 0.7 + Math.random() * 0.3;
+                        angle = Math.random() * Math.PI * 2;
+                        radius = distanceFactor * maxDistance;
+                        height = (Math.random() * 2 - 1) * maxDistance;
+                        
+                        // Colores tendiendo al morado/rosa/azul
+                        particleColors[i3] = 0.3 + Math.random() * 0.3; // R - medio-bajo
+                        particleColors[i3 + 1] = 0.05 + Math.random() * 0.1; // G - muy bajo
+                        particleColors[i3 + 2] = 0.6 + Math.random() * 0.4; // B - alto
+                    }
+                    
+                    // Aplicar movimiento radial ondulante
+                    const time = elapsedTime * 0.3;
+                    const waveSpeed = 0.5;
+                    const waveIntensity = 0.05;
+                    
+                    // Calcular posiciones con ondulaciones
+                    radius += Math.sin(time + angle * 3) * waveIntensity * radius;
+                    
+                    // Convertir coordenadas polares a cartesianas
+                    particlePositions[i3] = Math.cos(angle) * radius;
+                    particlePositions[i3 + 2] = Math.sin(angle) * radius;
+                    particlePositions[i3 + 1] = height;
+                    
+                    // Añadir movimiento adicional para las partículas
+                    const particleMovementSpeed = 0.1;
+                    particlePositions[i3] += Math.sin(time * waveSpeed + i * 0.1) * particleMovementSpeed;
+                    particlePositions[i3 + 1] += Math.cos(time * waveSpeed + i * 0.2) * particleMovementSpeed;
+                    particlePositions[i3 + 2] += Math.sin(time * waveSpeed + i * 0.15) * particleMovementSpeed;
+                    
+                    // Ajustar tamaño de partícula según la distancia (opcional)
+                    const sizeBase = 0.8;
+                    const sizeFactor = (zoneIndex === 0) ? 1.2 : sizeBase;
+                    particleSizes[i] = particleSize * (1 - distanceFactor * 0.3) * sizeFactor;
                 }
                 break;
+
+            case "waves": {
+                // Rejilla plana en XZ con altura Y determinada por ondas senoidales superpuestas
+                const gridSize = Math.max(2, Math.round(Math.sqrt(particleCount)));
+                const spacing = 3.5 / gridSize;
+                const ix = i % gridSize;
+                const iz = Math.floor(i / gridSize) % gridSize;
+                const targetX = (ix - gridSize / 2) * spacing;
+                const targetZ = (iz - gridSize / 2) * spacing;
+                const dist = Math.sqrt(targetX * targetX + targetZ * targetZ);
+                const t = elapsedTime * particleSpeed;
+                const targetY = Math.sin(dist * 3.0 - t) * 0.4
+                              + Math.sin(targetX * 1.5 + t * 0.6) * 0.15;
+
+                if (isTransitioning && previousMode !== "waves") {
+                    particlePositions[i3] = x * (1 - transitionFactor) + targetX * transitionFactor;
+                    particlePositions[i3 + 1] = y * (1 - transitionFactor) + targetY * transitionFactor;
+                    particlePositions[i3 + 2] = z * (1 - transitionFactor) + targetZ * transitionFactor;
+                } else {
+                    particlePositions[i3] = targetX;
+                    particlePositions[i3 + 1] = targetY;
+                    particlePositions[i3 + 2] = targetZ;
+                }
+                break;
+            }
+
+            case "text": {
+                // Posiciones objetivo muestreadas de la silueta del texto (canvas 2D)
+                let targetX = 0, targetY = 0, targetZ = 0;
+                if (textTargets && textTargets.length > 0) {
+                    const p = textTargets[i % textTargets.length];
+                    targetX = p.x;
+                    targetY = p.y;
+                    targetZ = Math.sin(i * 12.9898) * 0.08; // jitter de profundidad determinista
+                }
+
+                if (isTransitioning && previousMode !== "text") {
+                    particlePositions[i3] = x * (1 - transitionFactor) + targetX * transitionFactor;
+                    particlePositions[i3 + 1] = y * (1 - transitionFactor) + targetY * transitionFactor;
+                    particlePositions[i3 + 2] = z * (1 - transitionFactor) + targetZ * transitionFactor;
+                } else {
+                    const wobble = Math.sin(elapsedTime * particleSpeed + i * 0.05) * 0.01;
+                    particlePositions[i3] = targetX + wobble;
+                    particlePositions[i3 + 1] = targetY + wobble;
+                    particlePositions[i3 + 2] = targetZ;
+                }
+                break;
+            }
         }
         
         // Actualizar colores si está activado el ciclo de color
         if (colorCycle) {
             const hue = (elapsedTime * colorSpeed * 0.1 + i * 0.001) % 1.0;
-            color.setHSL(hue, 1, 0.5 + Math.random() * 0.5);
-            
-            colors[i3] = colors[i3] * 0.95 + color.r * 0.05;
-            colors[i3 + 1] = colors[i3 + 1] * 0.95 + color.g * 0.05;
-            colors[i3 + 2] = colors[i3 + 2] * 0.95 + color.b * 0.05;
+            paletteColor(hue, color);
+
+            particleColors[i3] = particleColors[i3] * 0.95 + color.r * 0.05;
+            particleColors[i3 + 1] = particleColors[i3 + 1] * 0.95 + color.g * 0.05;
+            particleColors[i3 + 2] = particleColors[i3 + 2] * 0.95 + color.b * 0.05;
         }
     }
     
     particles.geometry.attributes.position.needsUpdate = true;
     particles.geometry.attributes.color.needsUpdate = true;
+    particles.geometry.attributes.size.needsUpdate = true;
+}
+
+// Muestrea la silueta de un texto dibujado en un canvas 2D y devuelve
+// una lista de puntos {x, y} normalizados para usarlos como objetivos de partículas
+function buildTextTargets(text) {
+    const width = 512;
+    const height = 128;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 100px Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, width / 2, height / 2);
+
+    const data = ctx.getImageData(0, 0, width, height).data;
+    const points = [];
+    for (let y = 0; y < height; y += 2) {
+        for (let x = 0; x < width; x += 2) {
+            const alpha = data[(y * width + x) * 4];
+            if (alpha > 128) {
+                points.push({
+                    x: (x / width - 0.5) * 4,
+                    y: -(y / height - 0.5) * 1
+                });
+            }
+        }
+    }
+    return points.length > 0 ? points : null;
 }
 
 function changeMode(mode) {
@@ -391,33 +755,6 @@ function changeMode(mode) {
     transitionFactor = 0.0;
 }
 
-function applySettings() {
-    // Aplicar configuraciones de partículas
-    particleCount = parseInt(rangeParticleCount.value);
-    particleSize = parseFloat(rangeParticleSize.value);
-    particleSpeed = parseFloat(rangeParticleSpeed.value);
-    
-    // Aplicar configuraciones de bloom
-    bloomStrength = parseFloat(rangeBloomStrength.value);
-    bloomRadius = parseFloat(rangeBloomRadius.value);
-    bloomThreshold = parseFloat(rangeBloomThreshold.value);
-    
-    // Actualizar bloom pass
-    bloomPass.strength = bloomStrength;
-    bloomPass.radius = bloomRadius;
-    bloomPass.threshold = bloomThreshold;
-    
-    // Aplicar configuraciones de color
-    colorSpeed = parseFloat(rangeColorSpeed.value);
-    colorCycle = checkboxColorCycle.checked;
-    
-    // Recrear partículas
-    createParticles();
-    
-    // Cerrar panel de ajustes
-    toggleSettings();
-}
-
 function toggleSettings() {
     if (settingsPanel.style.display === 'none') {
         settingsPanel.style.display = 'block';
@@ -431,4 +768,8 @@ function onWindowResize() {
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
     composer.setSize(window.innerWidth, window.innerHeight);
+
+    if (particles) {
+        particles.material.uniforms.scale.value = window.innerHeight / 2;
+    }
 }
