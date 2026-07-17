@@ -37,6 +37,8 @@ let trailsEnabled = false;
 let trailAmount = 0.85;
 let currentText = 'HDR';
 let textTargets = null; // Puntos {x, y} muestreados de la silueta del texto
+let waveType = 'ripple'; // Variante activa del modo "waves"
+let bgColor = '#000000';
 
 // Paletas de color predefinidas (además de "rainbow", que usa HSL aleatorio)
 const PALETTE_STOPS = {
@@ -44,6 +46,12 @@ const PALETTE_STOPS = {
     oceano: ['#001233', '#0074d9', '#39cccc', '#b3fff6'],
     neon: ['#ff00ff', '#7b2ff7', '#00e5ff', '#39ff14'],
     mono: ['#1a1a2e', '#4e4e8f', '#a5a5ff', '#ffffff'],
+    pastel: ['#ffd1dc', '#ffe4b5', '#b5ead7', '#c7ceea'],
+    atardecer: ['#2d0140', '#ff6b6b', '#ff9f45', '#ffd93d'],
+    bosque: ['#0b3d0b', '#2e7d32', '#8bc34a', '#e6ffb3'],
+    hielo: ['#001a33', '#0077b6', '#90e0ef', '#ffffff'],
+    ultravioleta: ['#1a0033', '#6a0dad', '#c77dff', '#ff00ff'],
+    oro: ['#2b1700', '#a67c00', '#ffd700', '#fff8dc'],
 };
 const PALETTE_COLORS = {};
 for (const key in PALETTE_STOPS) {
@@ -70,6 +78,9 @@ let rangeBloomStrength, rangeBloomRadius, rangeBloomThreshold;
 let rangeColorSpeed, checkboxColorCycle;
 let selectColorPalette, checkboxTrailsEnabled, rangeTrailAmount;
 let textInput;
+let selectWaveType;
+let inputBgColor;
+let btnTogglePanel, rightPanel;
 let valueParticleCount, valueParticleSize, valueParticleSpeed;
 let valueBloomStrength, valueBloomRadius, valueBloomThreshold;
 let valueColorSpeed, valueTrailAmount;
@@ -97,6 +108,10 @@ function init() {
     checkboxTrailsEnabled = document.getElementById('trailsEnabled');
     rangeTrailAmount = document.getElementById('trailAmount');
     textInput = document.getElementById('textInput');
+    selectWaveType = document.getElementById('waveType');
+    inputBgColor = document.getElementById('bgColor');
+    btnTogglePanel = document.getElementById('btnTogglePanel');
+    rightPanel = document.querySelector('.right-panel');
 
     valueParticleCount = document.getElementById('valueParticleCount');
     valueParticleSize = document.getElementById('valueParticleSize');
@@ -120,6 +135,8 @@ function init() {
     checkboxTrailsEnabled.checked = trailsEnabled;
     rangeTrailAmount.value = trailAmount;
     textInput.value = currentText;
+    selectWaveType.value = waveType;
+    inputBgColor.value = bgColor;
 
     valueParticleCount.textContent = particleCount;
     valueParticleSize.textContent = particleSize;
@@ -136,6 +153,10 @@ function init() {
     document.getElementById('btnExplosion').addEventListener('click', () => changeMode('explosion'));
     document.getElementById('btnGrid').addEventListener('click', () => changeMode('grid'));
     document.getElementById('btnWaves').addEventListener('click', () => changeMode('waves'));
+    selectWaveType.addEventListener('change', () => {
+        waveType = selectWaveType.value;
+        if (animationMode !== 'waves') changeMode('waves');
+    });
     document.getElementById('btnText').addEventListener('click', () => {
         currentText = textInput.value.trim() || 'HDR';
         textTargets = buildTextTargets(currentText);
@@ -143,6 +164,10 @@ function init() {
     });
     document.getElementById('btnSettings').addEventListener('click', toggleSettings);
     document.getElementById('btnClose').addEventListener('click', toggleSettings);
+    btnTogglePanel.addEventListener('click', () => {
+        const hidden = rightPanel.classList.toggle('panel-hidden');
+        btnTogglePanel.textContent = hidden ? '☰' : '✕';
+    });
 
     textInput.addEventListener('input', () => {
         if (animationMode === 'text') {
@@ -200,6 +225,10 @@ function init() {
         trailAmount = parseFloat(rangeTrailAmount.value);
         afterimagePass.uniforms['damp'].value = trailAmount;
     });
+    inputBgColor.addEventListener('input', () => {
+        bgColor = inputBgColor.value;
+        scene.background = new THREE.Color(bgColor);
+    });
 
     // Iniciar Three.js
     initThree();
@@ -208,7 +237,7 @@ function init() {
 function initThree() {
     // Crear escena
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x000000);
+    scene.background = new THREE.Color(bgColor);
     
     // Configurar cámara
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -376,6 +405,73 @@ function animate() {
     
     controls.update();
     composer.render();
+}
+
+// Calcula el desplazamiento {x, y, z} de un punto de la rejilla del modo "waves"
+// según la variante de onda activa (tx, tz = posición base en la rejilla; t = tiempo * velocidad)
+function computeWaveOffset(type, tx, tz, dist, t) {
+    switch (type) {
+        case 'interference': {
+            // Dos focos emisores cuyas ondas circulares se cruzan y generan un patrón de interferencia
+            const d1 = Math.hypot(tx - (-0.9), tz - 0);
+            const d2 = Math.hypot(tx - 0.9, tz - 0);
+            const y = (Math.sin(d1 * 4.5 - t * 2) + Math.sin(d2 * 4.5 - t * 2)) * 0.22;
+            return { x: 0, y, z: 0 };
+        }
+        case 'ocean': {
+            // Suma de ondas Gerstner (distinta dirección/longitud/velocidad) para oleaje realista con cresta
+            const waves = [
+                { dx: 1.0, dz: 0.2, k: 2.2, speed: 1.2, amp: 0.22, steepness: 0.5 },
+                { dx: 0.3, dz: 1.0, k: 3.4, speed: 0.9, amp: 0.12, steepness: 0.4 },
+            ];
+            let ox = 0, oy = 0, oz = 0;
+            for (const w of waves) {
+                const len = Math.hypot(w.dx, w.dz);
+                const dirX = w.dx / len, dirZ = w.dz / len;
+                const phase = (dirX * tx + dirZ * tz) * w.k - t * w.speed;
+                oy += w.amp * Math.sin(phase);
+                ox += w.steepness * w.amp * dirX * Math.cos(phase);
+                oz += w.steepness * w.amp * dirZ * Math.cos(phase);
+            }
+            return { x: ox, y: oy, z: oz };
+        }
+        case 'spiral': {
+            // La fase depende del ángulo además de la distancia, así el frente de onda gira sobre el centro
+            const angle = Math.atan2(tz, tx);
+            const y = Math.sin(dist * 3.0 - t * 1.5 + angle * 4) * 0.35;
+            return { x: 0, y, z: 0 };
+        }
+        case 'pulse': {
+            // Anillos que laten hacia afuera desde el centro, atenuándose con la distancia
+            const pulseSpeed = 2.2, spacing = 1.6;
+            const front = ((dist - t * pulseSpeed) % spacing + spacing) % spacing;
+            const ring = Math.pow(Math.max(0, Math.cos(front * Math.PI / spacing)), 8);
+            const falloff = 1 / (1 + dist * 0.4);
+            return { x: 0, y: ring * 0.6 * falloff, z: 0 };
+        }
+        case 'noise': {
+            // Suma de senos con frecuencias y fases incoherentes: movimiento orgánico, no periódico a simple vista
+            const y = (
+                Math.sin(tx * 2.1 + t * 0.7) +
+                Math.sin(tz * 1.7 - t * 0.9 + 1.3) +
+                Math.sin((tx + tz) * 1.3 + t * 0.5 + 2.7) +
+                Math.sin((tx - tz) * 2.7 - t * 1.1 + 4.1)
+            ) * 0.1;
+            return { x: 0, y, z: 0 };
+        }
+        case 'square': {
+            // Onda cuadrada (suavizada con tanh, look "digital") combinada con una onda triangular
+            const squareWave = Math.tanh(Math.sin(dist * 3.0 - t) * 6) * 0.4;
+            const triangleWave = (2 / Math.PI) * Math.asin(Math.sin(tx * 1.5 + t * 0.6)) * 0.15;
+            return { x: 0, y: squareWave + triangleWave, z: 0 };
+        }
+        case 'ripple':
+        default: {
+            // Ondas radiales concéntricas superpuestas a una ondulación direccional suave
+            const y = Math.sin(dist * 3.0 - t) * 0.4 + Math.sin(tx * 1.5 + t * 0.6) * 0.15;
+            return { x: 0, y, z: 0 };
+        }
+    }
 }
 
 function updateParticles(delta, elapsedTime) {
@@ -644,17 +740,19 @@ function updateParticles(delta, elapsedTime) {
                 break;
 
             case "waves": {
-                // Rejilla plana en XZ con altura Y determinada por ondas senoidales superpuestas
+                // Rejilla plana en XZ con desplazamiento determinado por la variante de onda activa (waveType)
                 const gridSize = Math.max(2, Math.round(Math.sqrt(particleCount)));
                 const spacing = 3.5 / gridSize;
                 const ix = i % gridSize;
                 const iz = Math.floor(i / gridSize) % gridSize;
-                const targetX = (ix - gridSize / 2) * spacing;
-                const targetZ = (iz - gridSize / 2) * spacing;
-                const dist = Math.sqrt(targetX * targetX + targetZ * targetZ);
+                const baseX = (ix - gridSize / 2) * spacing;
+                const baseZ = (iz - gridSize / 2) * spacing;
+                const dist = Math.sqrt(baseX * baseX + baseZ * baseZ);
                 const t = elapsedTime * particleSpeed;
-                const targetY = Math.sin(dist * 3.0 - t) * 0.4
-                              + Math.sin(targetX * 1.5 + t * 0.6) * 0.15;
+                const waveOffset = computeWaveOffset(waveType, baseX, baseZ, dist, t);
+                const targetX = baseX + waveOffset.x;
+                const targetZ = baseZ + waveOffset.z;
+                const targetY = waveOffset.y;
 
                 if (isTransitioning && previousMode !== "waves") {
                     particlePositions[i3] = x * (1 - transitionFactor) + targetX * transitionFactor;

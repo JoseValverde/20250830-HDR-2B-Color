@@ -14,17 +14,46 @@
     </div>
     
     <div id="info"></div>
-    
+
+    <button id="btnTogglePanel" title="Mostrar/ocultar panel">☰</button>
+
     <div class="right-panel">
         <div class="controls">
             <button id="btnSphere">Esfera</button>
             <button id="btnVortex">Vórtice</button>
             <button id="btnExplosion">Explosión</button>
             <button id="btnGrid">Cuadrícula</button>
-            <button id="btnWaves">Ondas</button>
+            <div class="wave-mode-row">
+                <button id="btnWaves">Ondas</button>
+                <select id="waveType">
+                    <option value="ripple">Radiales</option>
+                    <option value="interference">Interferencia</option>
+                    <option value="ocean">Océano</option>
+                    <option value="spiral">Espiral</option>
+                    <option value="pulse">Pulsos</option>
+                    <option value="noise">Ruido orgánico</option>
+                    <option value="square">Cuadrada/Triangular</option>
+                </select>
+            </div>
             <div class="text-mode-row">
                 <input type="text" id="textInput" placeholder="Texto..." maxlength="12" value="HDR">
                 <button id="btnText">Texto</button>
+            </div>
+            <div class="palette-row">
+                <label for="colorPalette">Color:</label>
+                <select id="colorPalette">
+                    <option value="rainbow">Arcoíris</option>
+                    <option value="fuego">Fuego</option>
+                    <option value="oceano">Océano</option>
+                    <option value="neon">Neón</option>
+                    <option value="mono">Mono</option>
+                    <option value="pastel">Pastel</option>
+                    <option value="atardecer">Atardecer</option>
+                    <option value="bosque">Bosque</option>
+                    <option value="hielo">Hielo</option>
+                    <option value="ultravioleta">Ultravioleta</option>
+                    <option value="oro">Oro</option>
+                </select>
             </div>
             <button id="btnSettings">⚙️ Configuración</button>
         </div>
@@ -60,18 +89,12 @@
                 <input type="range" id="colorSpeed" min="0.1" max="5" step="0.1">
                 <span id="valueColorSpeed">0.5</span>
 
-                <label for="colorCycle">Ciclo de colores:</label>
-                <input type="checkbox" id="colorCycle" checked>
+                <label for="bgColor">Color de fondo:</label>
+                <input type="color" id="bgColor" value="#000000">
                 <span></span>
 
-                <label for="colorPalette">Paleta de color:</label>
-                <select id="colorPalette">
-                    <option value="rainbow">Arcoíris</option>
-                    <option value="fuego">Fuego</option>
-                    <option value="oceano">Océano</option>
-                    <option value="neon">Neón</option>
-                    <option value="mono">Mono</option>
-                </select>
+                <label for="colorCycle">Ciclo de colores:</label>
+                <input type="checkbox" id="colorCycle" checked>
                 <span></span>
 
                 <label for="trailsEnabled">Estelas:</label>
