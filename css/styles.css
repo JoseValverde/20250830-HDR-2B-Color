@@ -11,6 +11,8 @@
     --accent: #3fd6c8;
     --accent-dim: rgba(63, 214, 200, 0.4);
     --shadow-color: rgba(0, 0, 0, 0.6);
+    --panel-width: 320px;
+    --panel-space: 0px;
 }
 
 body {
@@ -22,12 +24,16 @@ body {
 
 canvas {
     display: block;
+    position: fixed;
+    inset: 0;
 }
 
 #info {
     position: fixed;
     top: 10px;
-    width: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: calc(100vw - var(--panel-space));
     text-align: center;
     color: white;
     font-size: 16px;
@@ -80,12 +86,21 @@ canvas {
     color: var(--text);
     font-family: var(--font-ui);
     transition: transform 0.3s ease, opacity 0.3s ease;
+    width: var(--panel-width);
 }
 
 .right-panel.panel-hidden {
-    transform: translateY(-50%) translateX(140%);
+    transform: translateY(-50%) translateX(calc(100% + 20px));
     opacity: 0;
     pointer-events: none;
+}
+
+body.panel-open {
+    --panel-space: var(--panel-width);
+}
+
+body.panel-open #btnTogglePanel {
+    right: calc(20px + var(--panel-width));
 }
 
 #btnTogglePanel {
